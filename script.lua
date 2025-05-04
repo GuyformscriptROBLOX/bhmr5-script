@@ -81,11 +81,11 @@
 
     local function displayDistance(distance)
         if previousTextLabel then
-            previousTextLabel.Text = "Odległość: " .. math.floor(distance) .. " studów"
+            previousTextLabel.Text = "Distance: " .. math.floor(distance) .. " Feet"
         else
             previousTextLabel = Instance.new("TextLabel")
             previousTextLabel.Parent = game.Players.LocalPlayer.PlayerGui:WaitForChild("ScreenGui")
-            previousTextLabel.Text = "Odległość: " .. math.floor(distance) .. " studów"
+            previousTextLabel.Text = "Distance: " .. math.floor(distance) .. " Feet"
             previousTextLabel.Size = UDim2.new(0, 200, 0, 50)
             previousTextLabel.Position = UDim2.new(0.5, -100, 0.9, 0)
             previousTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
