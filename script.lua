@@ -1,4 +1,3 @@
--- ✅ Load Roblox services
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -6,32 +5,26 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- ✅ Configuration settings
-local npcEspColor = BrickColor.new("Lime green") -- Color for ESP boxes
-local aimbotSmoothing = 0 -- How smoothly aim moves to target (unused in "mocarny" mode)
-local aimbotFOV = 60 -- Field of view for aimbot lock-on (in screen pixels)
+-- ⚙️ Settings
+local aimbotSmoothing = 0
+local aimbotFOV = 60
+local bulletSpeed = 2900
+local predictionMultiplier = 3
+local scanCooldown = 0.15
+local aimbotEnabled = true
 
--- ✅ Lighting and fog management variables
-local previousTextLabel
-local brightLoop = nil
+-- 🔁 Variables
+local aiming = false
+local currentTarget = nil
+local lastScan = 0
+local cachedNPCs = {}
 local fullBrightEnabled = false
 local noFogEnabled = false
 local originalFogEnd = Lighting.FogEnd
 local originalAtmospheres = {}
+local createdESP = {}
 
--- ✅ Distance label setup
-local distanceLabel = Instance.new("TextLabel")
-distanceLabel.Size = UDim2.new(0, 200, 0, 30)
-distanceLabel.Position = UDim2.new(0.5, -100, 0.8, 0)
-distanceLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-distanceLabel.TextColor3 = Color3.new(1, 1, 1)
-distanceLabel.TextScaled = true
-distanceLabel.Visible = false
-distanceLabel.Text = ""
-distanceLabel.BackgroundTransparency = 0.4
-distanceLabel.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-
--- ✅ Define NPCs (enemies) that can be targeted
+-- 🎯 Allowed NPC Weapons
 local allowedWeapons = {
     ["AI_AK"] = true, ["igla"] = true, ["AI_RPD"] = true, ["AI_PKM"] = true,
     ["AI_SVD"] = true, ["rpg7v2"] = true, ["AI_PP19"] = true, ["AI_RPK"] = true,
@@ -41,39 +34,34 @@ local allowedWeapons = {
     ["AI_KSVK"] = true, ["AI_Chicom"] = true
 }
 
--- ✅ Helper to check if NPC has allowed weapon
+-- 🛠️ Helper Functions
 local function hasAllowedWeapon(npc)
     for weapon in pairs(allowedWeapons) do
-        if npc:FindFirstChild(weapon) then
-            return true
-        end
+        if npc:FindFirstChild(weapon) then return true end
     end
     return false
 end
 
--- ✅ Check if NPC is alive
 local function isAlive(npc)
     for _, d in ipairs(npc:GetDescendants()) do
-        if d:IsA("BallSocketConstraint") then
-            return false
-        end
+        if d:IsA("BallSocketConstraint") then return false end
     end
     return true
 end
 
--- ✅ Check if NPC is visible (not behind a wall)
 local function isVisible(npc, head)
     local origin = Camera.CFrame.Position
     local direction = head.Position - origin
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-    rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
-    local ray = workspace:Raycast(origin, direction, rayParams)
-    return ray and ray.Instance and ray.Instance:IsDescendantOf(npc)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {LocalPlayer.Character}
+    local result = workspace:Raycast(origin, direction, params)
+    return result and result.Instance and result.Instance:IsDescendantOf(npc)
 end
 
--- ✅ Add ESP (visual box) to NPC's head
+-- 🔲 ESP
 local function createNpcHeadESP(npc)
+    if createdESP[npc] then return end
     local head = npc:FindFirstChild("Head")
     if head and not head:FindFirstChild("HeadESP") then
         local esp = Instance.new("BoxHandleAdornment")
@@ -83,35 +71,37 @@ local function createNpcHeadESP(npc)
         esp.ZIndex = 5
         esp.Size = head.Size
         esp.Transparency = 0.5
-        esp.Color = npcEspColor
+        esp.Color3 = Color3.new(0, 1, 0)
         esp.Parent = head
+        createdESP[npc] = true
 
         task.spawn(function()
-            while isAlive(npc) do task.wait(0.2) end
+            while isAlive(npc) do task.wait(0.5) end
             if esp and esp.Parent then esp:Destroy() end
+            createdESP[npc] = nil
         end)
     end
 end
 
--- ✅ Add ESP to existing NPCs
-for _, npc in ipairs(workspace:GetChildren()) do
-    if npc:IsA("Model") and npc.Name == "Male" and hasAllowedWeapon(npc) then
-        createNpcHeadESP(npc)
-    end
-end
-
--- ✅ Monitor new NPCs added to workspace
-workspace.ChildAdded:Connect(function(npc)
-    if npc:IsA("Model") and npc.Name == "Male" then
-        task.defer(function()
-            if npc:FindFirstChild("Head") and hasAllowedWeapon(npc) then
-                createNpcHeadESP(npc)
+-- ♻️ NPC Caching
+task.spawn(function()
+    while true do
+        cachedNPCs = {}
+        for _, npc in ipairs(workspace:GetChildren()) do
+            if npc:IsA("Model") and npc.Name == "Male" and hasAllowedWeapon(npc) and isAlive(npc) then
+                local head = npc:FindFirstChild("Head")
+                if head then
+                    table.insert(cachedNPCs, {npc = npc, head = head})
+                    createNpcHeadESP(npc)
+                end
             end
-        end)
+        end
+        task.wait(1)
     end
 end)
 
--- ✅ FullBright functions
+-- ☀️ FullBright & NoFog
+local brightLoop = nil
 local function LoopFullBright()
     if brightLoop then brightLoop:Disconnect() end
     brightLoop = RunService.RenderStepped:Connect(function()
@@ -131,7 +121,6 @@ local function StopFullBright()
     Lighting.FogEnd = originalFogEnd
 end
 
--- ✅ No Fog functions
 local function applyNoFog()
     Lighting.FogEnd = 100000
     for _, v in pairs(Lighting:GetDescendants()) do
@@ -150,8 +139,7 @@ local function disableNoFog()
     originalAtmospheres = {}
 end
 
--- ✅ Aimbot control toggle
-local aiming = false
+-- 👆 Mouse Input
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -162,50 +150,74 @@ UserInputService.InputEnded:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         aiming = false
-        distanceLabel.Visible = false
+        currentTarget = nil
     end
 end)
 
--- ✅ MOCARNY Aimbot (zero smoothing, instant aim to head)
+-- 🎯 Aimbot Logic
 RunService.RenderStepped:Connect(function()
-    if not aiming then return end
+    if not aiming or not aimbotEnabled then
+        currentTarget = nil
+        return
+    end
 
-    local closestHead = nil
-    local closestDist = math.huge
     local mousePos = UserInputService:GetMouseLocation()
+    if tick() - lastScan > scanCooldown or not currentTarget or not currentTarget:IsDescendantOf(workspace) or not isAlive(currentTarget.Parent) then
+        lastScan = tick()
+        local closestDist = math.huge
+        local newTarget = nil
 
-    for _, npc in ipairs(workspace:GetChildren()) do
-        if npc:IsA("Model") and npc.Name == "Male" and hasAllowedWeapon(npc) and isAlive(npc) then
-            local head = npc:FindFirstChild("Head")
-            if head and isVisible(npc, head) then
+        for _, data in ipairs(cachedNPCs) do
+            local npc, head = data.npc, data.head
+            if isVisible(npc, head) then
                 local screen3D, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
                     local screenPos = Vector2.new(screen3D.X, screen3D.Y)
                     local dist = (screenPos - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
-                    if dist < closestDist then
+                    if dist < aimbotFOV and dist < closestDist then
                         closestDist = dist
-                        closestHead = head
+                        newTarget = head
                     end
                 end
             end
         end
+
+        currentTarget = newTarget
     end
 
-    if closestHead then
-        local screen3D = Camera:WorldToViewportPoint(closestHead.Position)
+    if currentTarget then
+        local head = currentTarget
+        local model = head:FindFirstAncestorOfClass("Model")
+        local velocityPart = model and model:FindFirstChild("Male")
+        local velocity = velocityPart and velocityPart.Velocity or Vector3.zero
+        local distance = (head.Position - Camera.CFrame.Position).Magnitude
+        local travelTime = distance / bulletSpeed
+        local predictedHeadPos = head.Position + velocity * travelTime * predictionMultiplier
+        local screen3D = Camera:WorldToViewportPoint(predictedHeadPos)
         local screenPos = Vector2.new(screen3D.X, screen3D.Y)
-        local dx = screenPos.X - mousePos.X
-        local dy = screenPos.Y - mousePos.Y
-        if mousemoverel then
-            mousemoverel(dx, dy)
-        end
+        local dx = (screenPos.X - mousePos.X) / math.clamp(aimbotSmoothing, 1, 100)
+        local dy = (screenPos.Y - mousePos.Y) / math.clamp(aimbotSmoothing, 1, 100)
+        if mousemoverel then mousemoverel(dx, dy) end
     end
 end)
 
--- ✅ GUI setup for controls
-local gui = Instance.new("ScreenGui")
-gui.Name = "AimbotESPGui"
-gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- GUI 🧃
+local gui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+gui.Name = "AimbotMenu"
+
+local function createButton(text, pos, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 120, 0, 30)
+    button.Position = pos
+    button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Text = text
+    button.Parent = gui
+    button.MouseButton1Click:Connect(function()
+        callback(button)
+    end)
+    return button
+end
 
 local function createSlider(text, posY, initialValue, maxValue, callback)
     local slider = Instance.new("TextButton")
@@ -235,51 +247,21 @@ local function createSlider(text, posY, initialValue, maxValue, callback)
     end)
 end
 
--- ✅ Sliders for tuning FOV and smoothing
-createSlider("Smoothing", 100, aimbotSmoothing, 100, function(val)
-    aimbotSmoothing = val
-end)
+createSlider("FOV", 60, aimbotFOV, 200, function(val) aimbotFOV = val end)
 
-createSlider("FOV", 60, aimbotFOV, 200, function(val)
-    aimbotFOV = val
-end)
-
--- ✅ No Fog toggle button
-local noFogButton = Instance.new("TextButton")
-noFogButton.Size = UDim2.new(0, 100, 0, 30)
-noFogButton.Position = UDim2.new(0, 20, 0, 180)
-noFogButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-noFogButton.TextColor3 = Color3.new(1, 1, 1)
-noFogButton.Text = "No Fog: OFF"
-noFogButton.Parent = gui
-
-noFogButton.MouseButton1Click:Connect(function()
+createButton("No Fog: OFF", UDim2.new(0, 20, 0, 100), function(btn)
     noFogEnabled = not noFogEnabled
-    if noFogEnabled then
-        applyNoFog()
-        noFogButton.Text = "No Fog: ON"
-    else
-        disableNoFog()
-        noFogButton.Text = "No Fog: OFF"
-    end
+    if noFogEnabled then applyNoFog() btn.Text = "No Fog: ON"
+    else disableNoFog() btn.Text = "No Fog: OFF" end
 end)
 
--- ✅ FullBright toggle button
-local fullBrightButton = Instance.new("TextButton")
-fullBrightButton.Size = UDim2.new(0, 100, 0, 30)
-fullBrightButton.Position = UDim2.new(0, 130, 0, 180)
-fullBrightButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-fullBrightButton.TextColor3 = Color3.new(1, 1, 1)
-fullBrightButton.Text = "FullBright: OFF"
-fullBrightButton.Parent = gui
-
-fullBrightButton.MouseButton1Click:Connect(function()
+createButton("FullBright: OFF", UDim2.new(0, 150, 0, 100), function(btn)
     fullBrightEnabled = not fullBrightEnabled
-    if fullBrightEnabled then
-        LoopFullBright()
-        fullBrightButton.Text = "FullBright: ON"
-    else
-        StopFullBright()
-        fullBrightButton.Text = "FullBright: OFF"
-    end
+    if fullBrightEnabled then LoopFullBright() btn.Text = "FullBright: ON"
+    else StopFullBright() btn.Text = "FullBright: OFF" end
+end)
+
+createButton("Aimbot: ON", UDim2.new(0, 20, 0, 180), function(btn)
+    aimbotEnabled = not aimbotEnabled
+    btn.Text = aimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
 end)
