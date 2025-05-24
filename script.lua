@@ -1,6 +1,4 @@
--- Aimbot + ESP for Roblox NPCs closest to crosshair
--- Includes smoothing and distance display
-
+-- ✅ Load Roblox services
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -8,10 +6,12 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local npcEspColor = BrickColor.new("Lime green")
-local aimbotSmoothing = 0
-local aimbotFOV = 200 -- max screen distance from crosshair to lock target
+-- ✅ Configuration settings
+local npcEspColor = BrickColor.new("Lime green") -- Color for ESP boxes
+local aimbotSmoothing = 0 -- How smoothly aim moves to target (unused in "mocarny" mode)
+local aimbotFOV = 60 -- Field of view for aimbot lock-on (in screen pixels)
 
+-- ✅ Lighting and fog management variables
 local previousTextLabel
 local brightLoop = nil
 local fullBrightEnabled = false
@@ -19,6 +19,19 @@ local noFogEnabled = false
 local originalFogEnd = Lighting.FogEnd
 local originalAtmospheres = {}
 
+-- ✅ Distance label setup
+local distanceLabel = Instance.new("TextLabel")
+distanceLabel.Size = UDim2.new(0, 200, 0, 30)
+distanceLabel.Position = UDim2.new(0.5, -100, 0.8, 0)
+distanceLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+distanceLabel.TextColor3 = Color3.new(1, 1, 1)
+distanceLabel.TextScaled = true
+distanceLabel.Visible = false
+distanceLabel.Text = ""
+distanceLabel.BackgroundTransparency = 0.4
+distanceLabel.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+
+-- ✅ Define NPCs (enemies) that can be targeted
 local allowedWeapons = {
     ["AI_AK"] = true, ["igla"] = true, ["AI_RPD"] = true, ["AI_PKM"] = true,
     ["AI_SVD"] = true, ["rpg7v2"] = true, ["AI_PP19"] = true, ["AI_RPK"] = true,
@@ -28,47 +41,7 @@ local allowedWeapons = {
     ["AI_KSVK"] = true, ["AI_Chicom"] = true
 }
 
-local function saveOriginalLighting()
-    originalAtmospheres = {}
-end
-
-local function LoopFullBright()
-    if brightLoop then brightLoop:Disconnect() end
-    brightLoop = RunService.RenderStepped:Connect(function()
-        Lighting.Brightness = 2
-        Lighting.ClockTime = 14
-        Lighting.FogEnd = 100000
-        Lighting.GlobalShadows = false
-        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-        Lighting.Ambient = Color3.fromRGB(200, 200, 200)
-    end)
-end
-
-local function StopFullBright()
-    if brightLoop then brightLoop:Disconnect() brightLoop = nil end
-    Lighting.Brightness = 1
-    Lighting.GlobalShadows = true
-    Lighting.FogEnd = originalFogEnd
-end
-
-local function applyNoFog()
-    Lighting.FogEnd = 100000
-    for _, v in pairs(Lighting:GetDescendants()) do
-        if v:IsA("Atmosphere") then
-            table.insert(originalAtmospheres, v:Clone())
-            v:Destroy()
-        end
-    end
-end
-
-local function disableNoFog()
-    Lighting.FogEnd = originalFogEnd
-    for _, v in pairs(originalAtmospheres) do
-        v.Parent = Lighting
-    end
-    originalAtmospheres = {}
-end
-
+-- ✅ Helper to check if NPC has allowed weapon
 local function hasAllowedWeapon(npc)
     for weapon in pairs(allowedWeapons) do
         if npc:FindFirstChild(weapon) then
@@ -78,6 +51,7 @@ local function hasAllowedWeapon(npc)
     return false
 end
 
+-- ✅ Check if NPC is alive
 local function isAlive(npc)
     for _, d in ipairs(npc:GetDescendants()) do
         if d:IsA("BallSocketConstraint") then
@@ -87,6 +61,18 @@ local function isAlive(npc)
     return true
 end
 
+-- ✅ Check if NPC is visible (not behind a wall)
+local function isVisible(npc, head)
+    local origin = Camera.CFrame.Position
+    local direction = head.Position - origin
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    local ray = workspace:Raycast(origin, direction, rayParams)
+    return ray and ray.Instance and ray.Instance:IsDescendantOf(npc)
+end
+
+-- ✅ Add ESP (visual box) to NPC's head
 local function createNpcHeadESP(npc)
     local head = npc:FindFirstChild("Head")
     if head and not head:FindFirstChild("HeadESP") then
@@ -107,12 +93,14 @@ local function createNpcHeadESP(npc)
     end
 end
 
+-- ✅ Add ESP to existing NPCs
 for _, npc in ipairs(workspace:GetChildren()) do
     if npc:IsA("Model") and npc.Name == "Male" and hasAllowedWeapon(npc) then
         createNpcHeadESP(npc)
     end
 end
 
+-- ✅ Monitor new NPCs added to workspace
 workspace.ChildAdded:Connect(function(npc)
     if npc:IsA("Model") and npc.Name == "Male" then
         task.defer(function()
@@ -123,37 +111,77 @@ workspace.ChildAdded:Connect(function(npc)
     end
 end)
 
--- === AIMBOT ===
-local aiming = false
+-- ✅ FullBright functions
+local function LoopFullBright()
+    if brightLoop then brightLoop:Disconnect() end
+    brightLoop = RunService.RenderStepped:Connect(function()
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+    end)
+end
 
+local function StopFullBright()
+    if brightLoop then brightLoop:Disconnect() brightLoop = nil end
+    Lighting.Brightness = 1
+    Lighting.GlobalShadows = true
+    Lighting.FogEnd = originalFogEnd
+end
+
+-- ✅ No Fog functions
+local function applyNoFog()
+    Lighting.FogEnd = 100000
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("Atmosphere") then
+            table.insert(originalAtmospheres, v:Clone())
+            v:Destroy()
+        end
+    end
+end
+
+local function disableNoFog()
+    Lighting.FogEnd = originalFogEnd
+    for _, v in pairs(originalAtmospheres) do
+        v.Parent = Lighting
+    end
+    originalAtmospheres = {}
+end
+
+-- ✅ Aimbot control toggle
+local aiming = false
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         aiming = true
     end
 end)
-
 UserInputService.InputEnded:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         aiming = false
+        distanceLabel.Visible = false
     end
 end)
 
+-- ✅ MOCARNY Aimbot (zero smoothing, instant aim to head)
 RunService.RenderStepped:Connect(function()
     if not aiming then return end
 
     local closestHead = nil
-    local closestDist = aimbotFOV
+    local closestDist = math.huge
     local mousePos = UserInputService:GetMouseLocation()
 
     for _, npc in ipairs(workspace:GetChildren()) do
         if npc:IsA("Model") and npc.Name == "Male" and hasAllowedWeapon(npc) and isAlive(npc) then
             local head = npc:FindFirstChild("Head")
-            if head then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if head and isVisible(npc, head) then
+                local screen3D, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
+                    local screenPos = Vector2.new(screen3D.X, screen3D.Y)
+                    local dist = (screenPos - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
                     if dist < closestDist then
                         closestDist = dist
                         closestHead = head
@@ -164,24 +192,21 @@ RunService.RenderStepped:Connect(function()
     end
 
     if closestHead then
-        local screenPos = Camera:WorldToViewportPoint(closestHead.Position)
+        local screen3D = Camera:WorldToViewportPoint(closestHead.Position)
+        local screenPos = Vector2.new(screen3D.X, screen3D.Y)
         local dx = screenPos.X - mousePos.X
         local dy = screenPos.Y - mousePos.Y
-        local smoothing = math.clamp(aimbotSmoothing, 0, 100) / 100
-        local moveX = dx * (1 - smoothing)
-        local moveY = dy * (1 - smoothing)
-        if mousemoverel and (math.abs(moveX) > 1 or math.abs(moveY) > 1) then
-            mousemoverel(moveX, moveY)
+        if mousemoverel then
+            mousemoverel(dx, dy)
         end
     end
 end)
 
--- === GUI ===
+-- ✅ GUI setup for controls
 local gui = Instance.new("ScreenGui")
 gui.Name = "AimbotESPGui"
 gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- === Slider Function ===
 local function createSlider(text, posY, initialValue, maxValue, callback)
     local slider = Instance.new("TextButton")
     slider.Size = UDim2.new(0, 200, 0, 30)
@@ -210,6 +235,7 @@ local function createSlider(text, posY, initialValue, maxValue, callback)
     end)
 end
 
+-- ✅ Sliders for tuning FOV and smoothing
 createSlider("Smoothing", 100, aimbotSmoothing, 100, function(val)
     aimbotSmoothing = val
 end)
@@ -218,7 +244,7 @@ createSlider("FOV", 60, aimbotFOV, 200, function(val)
     aimbotFOV = val
 end)
 
--- === No Fog & FullBright Buttons ===
+-- ✅ No Fog toggle button
 local noFogButton = Instance.new("TextButton")
 noFogButton.Size = UDim2.new(0, 100, 0, 30)
 noFogButton.Position = UDim2.new(0, 20, 0, 180)
@@ -238,6 +264,7 @@ noFogButton.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ✅ FullBright toggle button
 local fullBrightButton = Instance.new("TextButton")
 fullBrightButton.Size = UDim2.new(0, 100, 0, 30)
 fullBrightButton.Position = UDim2.new(0, 130, 0, 180)
