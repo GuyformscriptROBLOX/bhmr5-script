@@ -11,7 +11,7 @@ local aimbotFOV = 60
 local bulletSpeed = 2900
 local predictionMultiplier = 3
 local scanCooldown = 0.15
-local aimbotEnabled = true
+local aimbotEnabled = true -- 🔥 ADDED
 
 -- 🔁 Variables
 local aiming = false
@@ -83,7 +83,7 @@ local function createNpcHeadESP(npc)
     end
 end
 
--- ♻️ NPC Caching
+-- ♻️ Caching NPCs
 task.spawn(function()
     while true do
         cachedNPCs = {}
@@ -139,7 +139,7 @@ local function disableNoFog()
     originalAtmospheres = {}
 end
 
--- 👆 Mouse Input
+-- 👆 Mouse
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -154,7 +154,7 @@ UserInputService.InputEnded:Connect(function(input, gp)
     end
 end)
 
--- 🎯 Aimbot Logic
+-- 🎯 Aimbot only when enabled
 RunService.RenderStepped:Connect(function()
     if not aiming or not aimbotEnabled then
         currentTarget = nil
