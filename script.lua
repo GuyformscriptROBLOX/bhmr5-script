@@ -1,3 +1,4 @@
+-- 🔧 SERVICES
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -5,15 +6,13 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- ⚙️ Settings
+-- ⚙️ SETTINGS
 local aimbotSmoothing = 0
 local aimbotFOV = 60
-local bulletSpeed = 2900
-local predictionMultiplier = 3
 local scanCooldown = 0.15
-local aimbotEnabled = true -- 🔥 ADDED
+local aimbotEnabled = true
 
--- 🔁 Variables
+-- 🔁 VARIABLES
 local aiming = false
 local currentTarget = nil
 local lastScan = 0
@@ -24,17 +23,17 @@ local originalFogEnd = Lighting.FogEnd
 local originalAtmospheres = {}
 local createdESP = {}
 
--- 🎯 Allowed NPC Weapons
+-- 🎯 ALLOWED NPC WEAPONS
 local allowedWeapons = {
     ["AI_AK"] = true, ["igla"] = true, ["AI_RPD"] = true, ["AI_PKM"] = true,
     ["AI_SVD"] = true, ["rpg7v2"] = true, ["AI_PP19"] = true, ["AI_RPK"] = true,
     ["AI_SAIGA"] = true, ["AI_MAKAROV"] = true, ["AI_PPSH"] = true, ["AI_DB"] = true,
     ["AI_MOSIN"] = true, ["AI_VZ"] = true, ["AI_6B47_Rifleman"] = true,
     ["AI_6B45_Commander"] = true, ["AI_6B47_Commander"] = true, ["AI_6B45_Rifleman"] = true,
-    ["AI_KSVK"] = true, ["AI_Chicom"] = true
+    ["AI_KSVK"] = true, ["AI_Chicom"] = true, ["AI_6B26"] = true, ["AI_6B3M"] = true
 }
 
--- 🛠️ Helper Functions
+-- 🛠️ HELPER FUNCTIONS
 local function hasAllowedWeapon(npc)
     for weapon in pairs(allowedWeapons) do
         if npc:FindFirstChild(weapon) then return true end
@@ -47,16 +46,6 @@ local function isAlive(npc)
         if d:IsA("BallSocketConstraint") then return false end
     end
     return true
-end
-
-local function isVisible(npc, head)
-    local origin = Camera.CFrame.Position
-    local direction = head.Position - origin
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Blacklist
-    params.FilterDescendantsInstances = {LocalPlayer.Character}
-    local result = workspace:Raycast(origin, direction, params)
-    return result and result.Instance and result.Instance:IsDescendantOf(npc)
 end
 
 -- 🔲 ESP
@@ -83,7 +72,7 @@ local function createNpcHeadESP(npc)
     end
 end
 
--- ♻️ Caching NPCs
+-- ♻️ CACHING NPCS
 task.spawn(function()
     while true do
         cachedNPCs = {}
@@ -100,7 +89,7 @@ task.spawn(function()
     end
 end)
 
--- ☀️ FullBright & NoFog
+-- ☀️ FULLBRIGHT & NOFOG
 local brightLoop = nil
 local function LoopFullBright()
     if brightLoop then brightLoop:Disconnect() end
@@ -139,7 +128,7 @@ local function disableNoFog()
     originalAtmospheres = {}
 end
 
--- 👆 Mouse
+-- 👆 MOUSE
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -154,7 +143,7 @@ UserInputService.InputEnded:Connect(function(input, gp)
     end
 end)
 
--- 🎯 Aimbot only when enabled
+-- 🎯 AIMBOT
 RunService.RenderStepped:Connect(function()
     if not aiming or not aimbotEnabled then
         currentTarget = nil
@@ -162,21 +151,35 @@ RunService.RenderStepped:Connect(function()
     end
 
     local mousePos = UserInputService:GetMouseLocation()
+    
     if tick() - lastScan > scanCooldown or not currentTarget or not currentTarget:IsDescendantOf(workspace) or not isAlive(currentTarget.Parent) then
         lastScan = tick()
         local closestDist = math.huge
         local newTarget = nil
 
         for _, data in ipairs(cachedNPCs) do
-            local npc, head = data.npc, data.head
-            if isVisible(npc, head) then
+            local npc = data.npc
+            local head = data.head
+
+            -- Sprawdzenie poprawności head
+            if head and head:IsA("BasePart") then
                 local screen3D, onScreen = Camera:WorldToViewportPoint(head.Position)
                 if onScreen then
                     local screenPos = Vector2.new(screen3D.X, screen3D.Y)
                     local dist = (screenPos - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
+
                     if dist < aimbotFOV and dist < closestDist then
-                        closestDist = dist
-                        newTarget = head
+                        local rayParams = RaycastParams.new()
+                        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+                        rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+
+                        local direction = (head.Position - Camera.CFrame.Position).Unit * 1000
+                        local result = workspace:Raycast(Camera.CFrame.Position, direction, rayParams)
+
+                        if result and result.Instance and result.Instance:IsDescendantOf(npc) then
+                            closestDist = dist
+                            newTarget = head
+                        end
                     end
                 end
             end
@@ -185,19 +188,22 @@ RunService.RenderStepped:Connect(function()
         currentTarget = newTarget
     end
 
+    -- Przesuwanie myszki do celu
     if currentTarget then
         local head = currentTarget
-        local model = head:FindFirstAncestorOfClass("Model")
-        local velocityPart = model and model:FindFirstChild("Male")
-        local velocity = velocityPart and velocityPart.Velocity or Vector3.zero
-        local distance = (head.Position - Camera.CFrame.Position).Magnitude
-        local travelTime = distance / bulletSpeed
-        local predictedHeadPos = head.Position + velocity * travelTime * predictionMultiplier
-        local screen3D = Camera:WorldToViewportPoint(predictedHeadPos)
-        local screenPos = Vector2.new(screen3D.X, screen3D.Y)
-        local dx = (screenPos.X - mousePos.X) / math.clamp(aimbotSmoothing, 1, 100)
-        local dy = (screenPos.Y - mousePos.Y) / math.clamp(aimbotSmoothing, 1, 100)
-        if mousemoverel then mousemoverel(dx, dy) end
+        if head and head:IsA("BasePart") then
+            local screen3D, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local screenPos = Vector2.new(screen3D.X, screen3D.Y)
+                local dx = (screenPos.X - mousePos.X) / math.clamp(aimbotSmoothing, 0.6, 100)
+                local dy = (screenPos.Y - mousePos.Y) / math.clamp(aimbotSmoothing, 0.6, 100)
+
+                -- Upewnij się, że mousemoverel istnieje
+                if typeof(mousemoverel) == "function" then
+                    mousemoverel(dx, dy)
+                end
+            end
+        end
     end
 end)
 
